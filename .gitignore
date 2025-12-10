@@ -1,0 +1,63 @@
+﻿# Visual Studio 鍮뚮뱶 寃곌낵臾?[Ss]rc/[Xx]64/
+[Ss]rc/[Dd]ebug/
+[Ss]rc/[Rr]elease/
+[Ss]rc/[Bb]uild/
+[Tt]utorial/[Xx]64/
+[Tt]utorial/[Dd]ebug/
+[Tt]utorial/[Rr]elease/
+[Tt]utorial/[Bb]uild/
+x64/
+x86/
+Debug/
+Release/
+Build/
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog/
+*.log
+*.lastbuildstate
+*.recipe
+*.user
+*.suo
+*.userosscache
+*.sdf
+*.opensdf
+*.db
+*.opendb
+
+# Visual Studio 罹먯떆
+.vs/
+.vscode/
+*.VC.db
+*.VC.VC.opendb
+
+# 以묎컙 ?뚯씪
+ipch/
+*.aps
+*.ncb
+*.sdf
+*.cachefile
+
+# ?곗씠??而댄뙆??寃곌낵臾?(?뚯뒪 ?뚯씪留?愿由?
+*.spv
+
+# ?몃? ?쇱씠釉뚮윭由?(?꾩껜 ?쒖쇅 - README 李몄“)
+Src/Libs/
+Tutorial/Libs/
+
+# ?꾩떆 ?뚯씪
+*.tmp
+*.temp
+*~
+*.swp
+*.bak
+
+# OS ?뚯씪
+.DS_Store
+Thumbs.db
+desktop.ini
