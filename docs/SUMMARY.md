@@ -1,6 +1,6 @@
 # Table of contents
 
-* [튜토리얼](README.md)
+* [튜토리얼](Tutorial.md)
 * [삼각형 그리기](draw_triangle/README.md)
   * [세팅](draw_triangle/undefined/README.md)
     * [인스턴스](draw_triangle/undefined/undefined.md)
