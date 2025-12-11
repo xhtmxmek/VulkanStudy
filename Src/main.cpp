@@ -65,6 +65,7 @@ private:
 		createImageViews();
 		createRenderPass();
 		createGraphicsPipeline();
+		createFramebuffers();
 	}
 
 private:
@@ -74,6 +75,8 @@ private:
 	}
 
 	void cleanup() {
+		for (auto framebuffer : swapChainFramebuffers)
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
@@ -800,6 +803,33 @@ private:
 	}
 #pragma endregion
 
+#pragma region Drawing
+private:
+	void createFramebuffers()
+	{
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+		for (size_t i = 0; i < swapChainImageViews.size(); i++)
+		{
+			VkImageView attachments[] = {swapChainImageViews[i]};
+
+			VkFramebufferCreateInfo frameBufferInfo{};
+			frameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			frameBufferInfo.renderPass = renderPass;
+			frameBufferInfo.attachmentCount = 1;
+			frameBufferInfo.pAttachments = attachments;
+			frameBufferInfo.width = swapChainExtent.width;
+			frameBufferInfo.height = swapChainExtent.height;
+			frameBufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to create framebuffer!");
+			}
+		}
+	}
+private:
+	std::vector<VkFramebuffer> swapChainFramebuffers;
+#pragma endregion
 };
 
 int main() {
