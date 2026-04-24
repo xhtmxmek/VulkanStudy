@@ -70,7 +70,7 @@ save_screenshot_to_disk() // can't run until the transfer has finished
 
 
 
-### “왜 semaphore는 이미지 단위가 자연스러운가?”
+### 2-1. “왜 semaphore는 이미지 단위가 자연스러운가?”
 - present는 **특정 swapchain image**를 대상으로 동작한다.
 - 따라서 `renderFinished`를 **프레임 슬롯 기준**으로 재사용하면,
   - 과거 프레임에서 present가 해당 semaphore를 아직 참조 중인데,
@@ -85,7 +85,7 @@ save_screenshot_to_disk() // can't run until the transfer has finished
 
 ---
 
-## 3. “Acquire는 무엇을 보장하나?”
+## 2-2. “Acquire는 무엇을 보장하나?”
 - `vkAcquireNextImageKHR`가 반환하는 것은 “**프레젠테이션 엔진이 더 이상 사용하지 않는 이미지**”이다.
 - 토론 중 핵심 정리:
   - **swapchain 이미지 자체**는 acquire로 “다시 렌더타겟으로 써도 됨” 상태가 된다.
@@ -94,8 +94,8 @@ save_screenshot_to_disk() // can't run until the transfer has finished
 
 ---
 
-## 4. MAX_FRAMES_IN_FLIGHT 개념
-### 4.1 목적
+## 3. MAX_FRAMES_IN_FLIGHT 개념
+### 3.1 목적
 - CPU가 GPU보다 너무 앞서 달리면서:
   - 자원이 무한히 늘어나거나,
   - 지연(latency)이 예측 불가능해지거나,
@@ -103,7 +103,7 @@ save_screenshot_to_disk() // can't run until the transfer has finished
 - **동시에 굴리는 프레임 수를 제한**해서
   - 자원/메모리/지연을 “통제 가능한 범위”로 묶는다.
 
-### 4.2 프레임 슬롯(frame slot)
+### 3.2 프레임 슬롯(frame slot)
 - `currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT`
 - 프레임 슬롯 단위로 자원을 2세트면 2세트만 돌림:
   - `imageAvailableSemaphores[currentFrame]`
@@ -111,7 +111,7 @@ save_screenshot_to_disk() // can't run until the transfer has finished
   - `commandBuffers[currentFrame]`
   - (보통) `ubo[currentFrame]`, descriptor set 등도 프레임 슬롯으로 분리
 
-### 4.3 “프레임 슬롯 2개인데 스왑체인 이미지는 3개” 문제
+### 3.3 “프레임 슬롯 2개인데 스왑체인 이미지는 3개” 문제
 - 프레임 슬롯은 “CPU/GPU 파이프라인 운영 단위”
 - 스왑체인 이미지는 “present/render 대상 이미지 풀”
 - 개수가 다를 수 있고, **매핑은 매 프레임마다 달라질 수 있음**.
@@ -124,14 +124,14 @@ save_screenshot_to_disk() // can't run until the transfer has finished
 
 ---
 
-## 5. imagesInFlight (이미지 인덱스 기반 fence 추적)
-### 5.1 아이디어
+## 4. imagesInFlight (이미지 인덱스 기반 fence 추적)
+### 4.1 아이디어
 - `imagesInFlight[imageIndex]`에
   - “이 이미지가 마지막으로 사용된 submit의 fence”를 저장한다.
 - 다음에 같은 imageIndex를 다시 받으면:
   - 그 fence를 기다려서 “이 이미지 관련 GPU 작업이 끝났는지” 확인 후 재사용.
 
-### 5.2 의사코드
+### 4.2 의사코드
 ```cpp
 wait(inFlightFence[cur]);
 
@@ -162,7 +162,7 @@ cur = (cur + 1) % MAX;
 
 ---
 
-## 6. drawFrame 동기화 요약
+## 5. drawFrame 동기화 요약
 
 이 장의 렌더링 루프는 **`MAX_FRAMES_IN_FLIGHT`개의 프레임 슬롯**을 돌려 쓰며, GPU가 한 번에 너무 많은 프레임을 앞서 처리하지 않도록 자원과 지연을 묶어 둔다. 동기화는 대략 다음 조건을 따른다.
 
