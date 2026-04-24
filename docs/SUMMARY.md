@@ -20,4 +20,4 @@
   * [그리기](draw_triangle/drawing/README.md)
     * [프레임버퍼](draw_triangle/drawing/framebuffer.md)
     * [커맨드버퍼](draw_triangle/drawing/commandBuffer.md)
-d
+    * [렌더링 및 프레젠테이션](draw_triangle/drawing/RenderingAndPresentation.md)
