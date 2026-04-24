@@ -64,3 +64,4 @@ vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pi
 
 파이프라인 객체(`VkPipeline`)는 특정 서브패스 인덱스와 바인딩되므로, 같은 설정이라도 서브패스가 다르면 별도의 파이프라인 객체가 필요하다. 하지만 `VkGraphicsPipelineCreateInfo` 구조체는 재사용 가능하므로 효율적으로 여러 파이프라인을 생성할 수 있다.
 
+

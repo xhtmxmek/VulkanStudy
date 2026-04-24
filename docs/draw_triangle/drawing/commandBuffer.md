@@ -1,6 +1,137 @@
 # 커맨드 버퍼
 
-Vulkan에서 렌더링 명령은 Command Buffer에 기록한 후 Queue에 제출하여 실행됩니다.
+## DX11 vs Vulkan Command Model 정리 요약
+
+### 1. DX11의 Command 실행 방식
+
+#### ✔ Immediate Context
+- API 호출 시 **즉시 드라이버로 전달**
+- 드라이버가 상태 변경, validation, hazard 추론을 **즉시 수행**
+- 멀티스레드 접근 시 내부적으로 **락(lock) 발생**
+
+#### ✔ Deferred Context
+- 여러 스레드에서 Command List를 생성 가능
+- 하지만:
+  - Command 기록 중에도 **드라이버에 접근**
+  - 상태 추론 / validation / 리소스 추적 수행
+  - 결국 **락 + 드라이버 오버헤드 발생**
+- Command List는 마지막에 Immediate Context로 제출
+
+➡ **“모든 명령을 한 번에 제출”해도  
+명령 생성 단계부터 이미 드라이버 병목이 존재**
+
+---
+
+### 2. Vulkan의 Command Buffer 모델
+
+#### ✔ 명령 기록과 실행의 완전한 분리
+- Command Buffer 기록 시:
+  - **드라이버 로직 거의 없음**
+  - validation, 상태 추론 없음
+  - 단순한 명령 스트림 생성
+- 여러 스레드에서 **락 없이 병렬 기록 가능**
+
+#### ✔ 제출 시점에만 드라이버 개입
+- `vkQueueSubmit()` 시:
+  - 전체 명령을 한 번에 전달
+  - 드라이버가 명령을 **일괄 분석 & 최적화**
+- GPU가 명령을 효율적으로 스케줄링 가능
+
+➡ Vulkan의 핵심 장점:
+> **“Command 생성 비용이 매우 싸고, 병렬화가 진짜로 가능하다”**
+
+---
+
+### 3. DX11 Deferred Context vs Vulkan Command Buffer 차이
+
+| 항목 | DX11 Deferred Context | Vulkan Command Buffer |
+|----|----------------------|----------------------|
+| 명령 기록 중 드라이버 접근 | 있음 | 거의 없음 |
+| 내부 락 | 있음 | 없음 |
+| 상태 추론 | 드라이버 암시적 처리 | 애플리케이션이 명시 |
+| 멀티스레드 효율 | 제한적 | 매우 높음 |
+| 명령 기록 비용 | 높음 | 매우 낮음 |
+
+---
+
+### 4. Vulkan Command Pool 플래그 의미
+
+#### ✔ `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT`
+- 개별 Command Buffer를 reset 가능
+- 변화가 있는 Command Buffer만 선택적으로 재녹화 가능
+- **실제 렌더링에서 필수**
+
+#### ✔ `VK_COMMAND_POOL_CREATE_TRANSIENT_BIT`
+- Command Buffer가 짧게 사용됨을 알리는 **힌트**
+- 있어도 되고 없어도 됨
+- 성능 차이는 드라이버 의존
+
+---
+
+### 5. Command Buffer 재사용 전략 (엔진 관점)
+
+#### ❌ 오브젝트 1개 = Command Buffer 1개
+- 비효율적
+- submit / 관리 / sync 비용 폭증
+
+#### ✅ Pass / 그룹 단위 Command Buffer
+예:
+- StaticGeometryCB (거의 재녹화 없음)
+- DynamicGeometryCB (매 프레임 재녹화)
+- ClothCB (변화 있을 때만 재녹화)
+
+각 CB 안에 **여러 오브젝트의 DrawCall 포함**
+
+---
+
+### 6. Dynamic / Cloth 처리 방식
+
+- 변환 행렬만 바뀌는 경우:
+  - Push Constant / UBO 업데이트
+  - **Command Buffer 재녹화 불필요**
+- Vertex Buffer 자체가 바뀌는 경우:
+  - Compute / CPU 시뮬레이션 결과 반영
+  - **관련 CB만 reset 후 재녹화**
+
+---
+
+### 7. Cloth는 왜 자주 재녹화하는가
+
+- Cloth는:
+  - Vertex Position / Normal이 매 프레임 변경
+  - 단순 Transform Matrix로 표현 불가
+- 결과:
+  - Vertex Buffer 업데이트
+  - 종종 DrawCall 순서 / 리소스 바인딩 변화
+  - **해당 CB 재녹화 필요**
+
+---
+
+### 8. CPU Cloth vs GPU Cloth
+
+#### GPU Cloth
+- 대규모 Cloth에 매우 효율적
+- 병렬성 극대화
+- 하지만:
+  - 디버깅 어려움
+  - 작은 개수에서는 오버헤드가 더 클 수 있음
+
+#### CPU Cloth
+- 소규모 / 단순 Cloth에 적합
+- 구현·디버깅 용이
+- GPU 동기화 비용 감소
+
+➡ **GPU Cloth가 항상 더 빠른 것은 아님**
+
+---
+
+### 🎯 최종 핵심 요약
+
+- DX11 병목의 핵심은 **명령 생성 단계의 드라이버 개입**
+- Vulkan은 **명령 생성과 실행을 완전히 분리**
+- Command Buffer는 오브젝트 단위가 아니라 **Pass/그룹 단위**
+- 변경된 부분만 선택적으로 재녹화하는 구조가 핵심
+- `RESET_COMMAND_BUFFER_BIT`은 이를 가능하게 하는 필수 옵션
 
 ## Command Buffer 레벨
 
@@ -20,7 +151,7 @@ Vulkan에서 렌더링 명령은 Command Buffer에 기록한 후 Queue에 제출
 
 ### Primary만으로도 충분한 경우
 
-여러 오브젝트를 렌더링할 때 Primary만으로도 충분합니다:
+여러 오브젝트를 렌더링할 때 Primary만으로도 충분:
 
 ```cpp
 // Primary Command Buffer만으로 여러 오브젝트 렌더링
@@ -55,11 +186,11 @@ vkEndCommandBuffer(commandBuffer);
 vkCmdExecuteCommands(primaryBuffer, secondaryBuffers.size(), secondaryBuffers.data());
 ```
 
-**중요**: Primary는 단일 스레드에서만 기록할 수 있지만, Secondary는 여러 스레드에서 동시에 기록할 수 있습니다.
+**중요**: Primary는 단일 스레드에서만 기록할 수 있지만, Secondary는 여러 스레드에서 동시에 기록 가능
 
 #### 2. 여러 Primary에서 재사용
 
-**핵심 차이**: Primary는 다른 Primary에서 호출할 수 없지만, Secondary는 여러 Primary에서 호출 가능합니다.
+**핵심 차이**: Primary는 다른 Primary에서 호출할 수 없지만, Secondary는 여러 Primary에서 호출 가능
 
 ```cpp
 // UI를 Secondary로 기록
@@ -99,7 +230,7 @@ vkEndCommandBuffer(primary2);
 - Primary 방식: RenderPass 전환 비용 + 자연스러운 오버레이를 위한 추가 설정 비용
 - Secondary 방식: RenderPass 전환 없음 + 추가 설정 불필요
 
-따라서 UI를 Secondary로 두는 것이 더 효율적입니다.
+따라서 UI를 Secondary로 두는 것이 더 효율적
 
 ## 재사용성
 
@@ -125,7 +256,7 @@ for (int frame = 0; frame < 1000; frame++) {
 
 ### Secondary의 재사용성 장점
 
-Secondary는 여러 Primary에서 같은 Secondary를 호출할 수 있습니다:
+Secondary는 여러 Primary에서 같은 Secondary를 호출 가능:
 
 ```cpp
 // UI Secondary (한 번만 기록)
@@ -192,7 +323,7 @@ for (int frame = 0; frame < 1000; frame++) {
 
 ### 1. `VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT`
 
-**의미**: Command Buffer가 한 번만 제출되고 재사용되지 않음을 나타냅니다.
+**의미**: Command Buffer가 한 번만 제출되고 재사용 안됨
 
 **사용 시나리오**:
 - Command Buffer를 한 번만 사용하고 버릴 때
@@ -214,7 +345,7 @@ vkQueueSubmit(queue, 1, &submitInfo, fence);
 
 ### 2. `VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT`
 
-**의미**: Secondary Command Buffer가 이미 시작된 RenderPass 내에서 실행됨을 나타냅니다.
+**의미**: Secondary Command Buffer가 이미 시작된 RenderPass 내에서 실행됨
 
 **사용 시나리오**:
 - Secondary Command Buffer를 기록할 때
@@ -236,11 +367,11 @@ vkBeginCommandBuffer(secondaryBuffer, &beginInfo);
 vkEndCommandBuffer(secondaryBuffer);
 ```
 
-**중요**: 이 플래그는 Secondary Command Buffer에만 사용합니다.
+**중요**: 이 플래그는 Secondary Command Buffer에만 사용
 
 ### 3. `VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT`
 
-**의미**: Command Buffer가 여러 Queue에 동시에 제출될 수 있음을 나타냅니다.
+**의미**: Command Buffer가 여러 Queue에 동시에 제출될 수 있음을 나타냄
 
 **사용 시나리오**:
 - 같은 Command Buffer를 여러 Queue에 동시에 제출할 때
@@ -259,7 +390,7 @@ vkQueueSubmit(queue1, 1, &submitInfo1, fence1);
 vkQueueSubmit(queue2, 1, &submitInfo2, fence2);  // 같은 Command Buffer 재사용
 ```
 
-**주의**: 이 플래그가 없으면 Command Buffer가 실행 중일 때 다시 제출할 수 없습니다.
+**주의**: 이 플래그가 없으면 Command Buffer가 실행 중일 때 다시 제출 불가능
 
 **실제로는**: 대부분의 경우 이 플래그를 사용하지 않습니다. Command Buffer를 재기록하거나 여러 Command Buffer를 사용하는 것이 더 효율적입니다.
 
@@ -267,7 +398,7 @@ vkQueueSubmit(queue2, 1, &submitInfo2, fence2);  // 같은 Command Buffer 재사
 
 ### 암묵적 리셋
 
-**중요**: Command Buffer는 "추가(append)" 모드를 지원하지 않습니다.
+**중요**: Command Buffer는 "추가(append)" 모드를 지원하지 안함
 
 ```cpp
 // 첫 번째 기록
@@ -284,8 +415,8 @@ vkEndCommandBuffer(commandBuffer);
 ```
 
 **`vkBeginCommandBuffer`는 항상 리셋합니다**:
-- 이미 기록된 Command Buffer에 `vkBeginCommandBuffer`를 호출하면 암묵적으로 리셋됩니다
-- 나중에 명령을 추가하려면 전체를 다시 기록해야 합니다
+- 이미 기록된 Command Buffer에 `vkBeginCommandBuffer`를 호출하면 암묵적으로 리셋
+- 나중에 명령을 추가하려면 전체를 다시 기록해야 함
 
 **명시적 리셋 vs 암묵적 리셋**:
 ```cpp
@@ -297,7 +428,7 @@ vkBeginCommandBuffer(commandBuffer, &beginInfo);
 vkBeginCommandBuffer(commandBuffer, &beginInfo);  // 자동으로 리셋됨
 ```
 
-두 방식 모두 동일하게 동작합니다. `vkBeginCommandBuffer`가 자동으로 리셋하므로 명시적 리셋은 선택사항입니다.
+두 방식 모두 동일하게 동작합니다. `vkBeginCommandBuffer`가 자동으로 리셋하므로 명시적 리셋은 선택사항
 
 ## Queue 제출의 비동기 특성
 
@@ -314,7 +445,7 @@ vkQueueSubmit(graphicsQueue, 1, &submitInfo3, fence3);
 // - 순서가 보장되지 않을 수 있음
 ```
 
-**중요**: `vkQueueSubmit`은 즉시 반환되며, 실제 실행은 GPU에서 비동기로 진행됩니다.
+**중요**: `vkQueueSubmit`은 즉시 반환되며, 실제 실행은 GPU에서 비동기로 진행
 
 ### 동기화 필요성
 
@@ -328,13 +459,13 @@ vkQueueSubmit(graphicsQueue, 1, &submitInfo2, nullptr);  // 이미지 사용
 // → 이미지가 아직 복사되지 않았는데 사용하려고 함
 ```
 
-**해결 방법**: Semaphore, Fence, 또는 Pipeline Barrier를 사용하여 동기화해야 합니다.
+**해결 방법**: Semaphore, Fence, 또는 Pipeline Barrier를 사용하여 동기화해야 함
 
 ## RenderPass 간 동기화
 
 ### 불투명 오브젝트와 반투명 오브젝트
 
-불투명 오브젝트와 반투명 오브젝트가 다른 RenderPass일 때, 동기화가 필요합니다.
+불투명 오브젝트와 반투명 오브젝트가 다른 RenderPass일 때, 동기화가 필요함
 
 **Semaphore 사용 (권장)**:
 ```cpp
@@ -360,7 +491,7 @@ vkQueueSubmit(graphicsQueue, 1, &transparentSubmitInfo, nullptr);
 - **Semaphore**: GPU-GPU 동기화 (RenderPass 간 순서 보장)
 - **Fence**: CPU-GPU 동기화 (CPU가 GPU 완료를 기다려야 할 때)
 
-**결론**: 같은 Queue에서 순차 제출해도 실행 순서가 보장되지 않을 수 있으므로, 명시적 동기화가 필요합니다.
+**결론**: 같은 Queue에서 순차 제출해도 실행 순서가 보장되지 않을 수 있으므로, 명시적 동기화가 필요
 
 ## 요약
 
@@ -385,3 +516,112 @@ vkQueueSubmit(graphicsQueue, 1, &transparentSubmitInfo, nullptr);
 - Queue 제출은 비동기적
 - RenderPass 간 순서 보장을 위해 Semaphore 사용
 - CPU가 기다려야 할 때는 Fence 사용
+
+
+## 튜토리얼 예제
+위까지는 command buffer에 대한 개요이다. 결국 vulkan에서는 렌더링을 위해서 commandBuffer에 렌더링 명령이 기록되어야 한다.
+
+### 커맨드 풀
+커맨드 버퍼는 커맨드 풀로부터 할당된다.
+
+```c++
+VkCommandPool commandPool;\
+void initVulkan() {
+    //...
+    createCommandPool();
+}
+
+void createCommandPool()
+{
+    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+    if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) 
+    {
+        throw std::runtime_error("failed to create command pool!");
+    }
+}
+
+void cleanUp()
+{
+    vkDestroyCommandPool(device, commandPool, nullptr);
+}
+```
+
+### 커맨드 버퍼 할당
+```c++
+VkCommandBuffer commandBuffer;
+
+void initVulkan()
+{
+    createCommandBuffer();
+}
+
+void createCommandBuffer()
+{
+    VkCommandbufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate command buffers!");
+    }
+}
+```
+
+### 커맨드 버퍼 기록
+
+커맨드 버퍼를 기록할때 지금은 primary로 충분하기떄문에 primary로 기록한다. renderpass를 시작하고,
+고정 함수기능들(그래픽스 파이프라인, 동적 파이프라인 객체)들을 세팅한다. 마지막으로 그리기 명령을 내리고 렌더패스와 커맨드 버퍼 기록을 종료한다.
+
+```c++
+void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) 
+{
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = 0; // Optional
+    beginInfo.pInheritanceInfo = nullptr; // Optional
+
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) 
+    {
+        throw std::runtime_error("failed to begin recording command buffer!");
+    }
+
+    VkRenderPassBeginInfo renderPassInfo{};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassInfo.renderPass = renderPass;
+	renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
+	renderPassInfo.renderArea.offset = { 0, 0 };
+	renderPassInfo.renderArea.extent = swapChainExtent;
+	VkClearValue clearColor = { 0.f ,0.f, 0.f, 1.f };
+	renderPassInfo.clearValueCount = 1;
+	renderPassInfo.pClearValues = &clearColor;
+	vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+	VkViewport viewport{};
+	viewport.x = 0.f;
+	viewport.y = 0.f;
+	viewport.width = swapChainExtent.width;
+	viewport.height = swapChainExtent.height;
+	viewport.minDepth = 0.f;
+	viewport.maxDepth = 1.f;
+	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+	VkRect2D scissor{};
+	scissor.offset = {0, 0};
+	scissor.extent = swapChainExtent;
+	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+	vkCmdEndRenderPass(commandBuffer);
+	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
+	{
+		throw std::runtime_error("failed to record command buffer!");
+	}
+}
+```
